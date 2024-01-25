@@ -3,3 +3,5 @@
 shifts.db
 
 node_modules/
+
+.gitignore
