@@ -273,7 +273,7 @@ bot.command('shift', async ctx => {
     // Проверка времени в Москве
     const moscowCurrentTime = DateTime.now().setZone('Europe/Moscow');
     if (!isNightTimeInMoscow()) {
-        await ctx.reply('Команда /shift доступна только после 21:00 по Москве.');
+        await ctx.reply('Команда /shift доступна только в диапазоне 21:00-23:00 по Москве.');
         return;
     }
 
