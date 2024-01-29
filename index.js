@@ -39,6 +39,9 @@ let shiftActive = false;
 let shiftUser = null;
 let shiftInterval = null;
 let shiftMessages = [];
+let shiftStartTime;
+let shiftEndTime;
+
 
 const usernameMappings = {
     "lipchinski": "Дмитрий Селиванов",
@@ -167,57 +170,66 @@ function getLastJsFact() {
 async function sendShiftMessages(ctx, testMode = false) {
     if (!shiftActive && !testMode) return;
 
-    // Получаем идентификатор чата и время окончания смены из последней активной записи смены
-    const shiftRecord = await db.get('SELECT * FROM shift_records WHERE username = ? ORDER BY id DESC LIMIT 1', [shiftUser]);
-    if (!shiftRecord) return;
-
-    const chatId = shiftRecord.chat_id; // Получаем идентификатор чата из записи
-    const shiftEndTime = DateTime.fromISO(shiftRecord.end_time);
-    console.log(`\Идентификатор чата: ${shiftRecord.chat_id}`)
-
-    // Проверяем, не наступило ли время окончания смены
     const moscowTime = DateTime.now().setZone('Europe/Moscow');
-    if (!testMode && moscowTime >= shiftEndTime) {
-        shiftActive = false;
+    if (!testMode && moscowTime >= DateTime.fromISO(shiftEndTime)) {
+        await endShift();
         return;
     }
 
-    updateTokenAndPerformActions().then(async () => {
+    const chatId = await getChatIdForUser(shiftUser);
+    if (!chatId) return;
+
+    try {
+        await updateTokenAndPerformActions();
+
         const token = await getAuthToken();
         if (!token) {
             console.log("Не удалось получить токен.");
+            return;
         }
-    }).catch(error => {
-        console.error("Ошибка при обновлении токена и выполнении действий:", error);
-    }).finally(async () => {
-        // Этот блок выполняется вне зависимости от успеха или ошибки в updateTokenAndPerformActions
 
-        // Получение факта
         const fact = getLastJsFact() || "Интересный факт о JavaScript"; // Запасной вариант факта, если основной не доступен
-        const inlineKeyboard = new InlineKeyboard().text('Не сплю', 'awake');
 
-        bot.api.sendMessage(chatId, `${fact}\n\nСпишь? Проверь Grafana и каналы с алертами (Grafana Alerts, bk-corm-grafana). Если всё ок, можешь решить пример из сообщения`, {
-            reply_markup: inlineKeyboard
-        }).then(sentMessage => {
-            // Добавление информации о сообщении в массив
-            shiftMessages.push({
-                messageId: sentMessage.message_id,
-                timestamp: Date.now()
-            });
-
-            // Увеличение счетчика отправленных сообщений в базе данных
-            db.run('UPDATE shift_records SET sent_messages = sent_messages + 1 WHERE username = ? AND shift_date = ?', [shiftUser, DateTime.now().toFormat('yyyy-MM-dd')]).catch(console.error);
-
-            // Планирование удаления сообщения через 10 минут, если нет ответа
-            setTimeout(() => {
-                if (shiftMessages.some(msg => msg.messageId === sentMessage.message_id)) {
-                    ctx.api.deleteMessage(ctx.chat.id, sentMessage.message_id).catch(console.error);
-                    shiftMessages = shiftMessages.filter(msg => msg.messageId !== sentMessage.message_id);
-                }
-            }, 600000); // 10 минут
+        const sentMessage = await bot.api.sendMessage(chatId, `${fact}\n\nСпишь? Проверь Grafana и каналы с алертами...`, {
+            reply_markup: new InlineKeyboard().text('Не сплю', 'awake')
         });
-    });
+
+        trackSentMessage(sentMessage);
+    } catch (error) {
+        console.error("Ошибка при отправке сообщения:", error);
+    }
 }
+
+async function endShift() {
+    shiftActive = false;
+    const chatId = await getChatIdForUser(shiftUser);
+    if (chatId) {
+        await bot.api.sendMessage(chatId, 'Смена завершена.');
+    }
+}
+
+async function getChatIdForUser(username) {
+    if (!username) return null;
+    const record = await db.get('SELECT chat_id FROM shift_records WHERE username = ? ORDER BY id DESC LIMIT 1', [username]);
+    return record ? record.chat_id : null;
+}
+
+function trackSentMessage(sentMessage) {
+    shiftMessages.push({
+        messageId: sentMessage.message_id,
+        timestamp: Date.now()
+    });
+
+    db.run('UPDATE shift_records SET sent_messages = sent_messages + 1 WHERE username = ? AND shift_date = ?', [shiftUser, DateTime.now().toFormat('yyyy-MM-dd')]).catch(console.error);
+
+    setTimeout(() => {
+        if (shiftMessages.some(msg => msg.messageId === sentMessage.message_id)) {
+            bot.api.deleteMessage(sentMessage.chat.id, sentMessage.message_id).catch(console.error);
+            shiftMessages = shiftMessages.filter(msg => msg.messageId !== sentMessage.message_id);
+        }
+    }, 600000); // 10 минут
+}
+
 
 
 function startShiftMessageInterval(ctx, testMode = false) {
@@ -259,6 +271,7 @@ let confirmationMessageId;
 
 bot.command('shift', async ctx => {
     // Проверка времени в Москве
+    const moscowCurrentTime = DateTime.now().setZone('Europe/Moscow');
     if (!isNightTimeInMoscow()) {
         await ctx.reply('Команда /shift доступна только после 21:00 по Москве.');
         return;
@@ -271,10 +284,13 @@ bot.command('shift', async ctx => {
         return;
     }
 
-    // Проверка наличия активной смены в базе данных
-    const moscowTime = DateTime.now().setZone('Europe/Moscow').toFormat('yyyy-MM-dd HH:mm:ss');
+    // Установка времени начала и окончания смены
+    shiftStartTime = moscowCurrentTime.set({ hour: 21, minute: 0, second: 0 }).toISO();
+    shiftEndTime = moscowCurrentTime.plus({ days: 1 }).set({ hour: 9, minute: 0, second: 0 }).toISO();
+
+    // Проверка наличия активной смены
     try {
-        const activeShift = await db.get('SELECT * FROM shift_records WHERE end_time > ?', [moscowTime]);
+        const activeShift = await db.get('SELECT * FROM shift_records WHERE end_time > ?', [moscowCurrentTime.toFormat('yyyy-MM-dd HH:mm:ss')]);
         if (activeShift) {
             await ctx.reply(`Уже есть активная смена, активированная пользователем ${activeShift.username}. Новую смену нельзя активировать.`);
             return;
@@ -297,6 +313,7 @@ bot.command('shift', async ctx => {
 
     confirmationMessageId = confirmationMessage.message_id; // Присвоение messageId переменной
 });
+
 
 
 
