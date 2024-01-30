@@ -190,7 +190,7 @@ async function sendShiftMessages(ctx, testMode = false) {
 
         const fact = getLastJsFact() || "Интересный факт о JavaScript"; // Запасной вариант факта, если основной не доступен
 
-        const sentMessage = await bot.api.sendMessage(chatId, `${fact}\n\nСпишь? Проверь Grafana и каналы с алертами...`, {
+        const sentMessage = await bot.api.sendMessage(chatId, `${fact}\n\nСпишь? Проверь Grafana, а также каналы bk-corm-grafana и Grafana Alerts + чаты. Если всё окэй, то реши задачу из сообщения`, {
             reply_markup: new InlineKeyboard().text('Не сплю', 'awake')
         });
 
