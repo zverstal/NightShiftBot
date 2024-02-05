@@ -254,7 +254,7 @@ function startShiftMessageInterval(ctx, testMode = false) {
     } else {
         // Обычный режим: отправка сообщения в случайное время в течение 20-минутного интервала
         function scheduleRegularMessage() {
-            if (!isNightTimeInMoscow()) {
+            if (!isNightTimeForShiftMessageInMoscow()) {
                 console.log("Сейчас не ночное время в Москве. Ожидание следующего периода...");
                 setTimeout(scheduleRegularMessage, 60000); // Проверка каждую минуту
                 return;
