@@ -202,11 +202,13 @@ async function sendShiftMessages(ctx, testMode = false) {
 
 async function endShift() {
     shiftActive = false;
+    shiftMessages = []; // Очистка списка сообщений при завершении смены
     const chatId = await getChatIdForUser(shiftUser);
     if (chatId) {
         await bot.api.sendMessage(chatId, 'Смена завершена.');
     }
 }
+
 
 async function getChatIdForUser(username) {
     if (!username) return null;
@@ -235,6 +237,12 @@ function trackSentMessage(sentMessage) {
 function startShiftMessageInterval(ctx, testMode = false) {
     console.log("startShiftMessageInterval called, testMode:", testMode); // Логгирование
 
+    // Функция для определения, является ли текущее время "ночным" (между 21:00 и 9:00)
+    function isNightTimeForShiftMessageInMoscow() {
+        const moscowTime = DateTime.now().setZone('Europe/Moscow');
+        return moscowTime.hour >= 21 || moscowTime.hour < 9;
+    }
+
     if (testMode) {
         // Тестовый режим: отправка сообщения каждые 30 секунд
         function scheduleTestMessage() {
@@ -246,6 +254,12 @@ function startShiftMessageInterval(ctx, testMode = false) {
     } else {
         // Обычный режим: отправка сообщения в случайное время в течение 20-минутного интервала
         function scheduleRegularMessage() {
+            if (!isNightTimeInMoscow()) {
+                console.log("Сейчас не ночное время в Москве. Ожидание следующего периода...");
+                setTimeout(scheduleRegularMessage, 60000); // Проверка каждую минуту
+                return;
+            }
+
             const now = new Date();
             const minutesPastHour = now.getMinutes();
             const delayToNextIntervalStart = ((Math.floor(minutesPastHour / 20) + 1) * 20 - minutesPastHour) * 60000;
@@ -255,7 +269,11 @@ function startShiftMessageInterval(ctx, testMode = false) {
             const scheduledTime = new Date(now.getTime() + totalDelay);
             console.log("Отправка обычного сообщения запланирована на:", scheduledTime.toISOString()); // Логгирование
             setTimeout(() => {
-                sendShiftMessages(ctx, testMode);
+                if (isNightTimeForShiftMessageInMoscow()) { // Дополнительная проверка перед отправкой
+                    sendShiftMessages(ctx, testMode);
+                } else {
+                    console.log("Вышли из ночного времени перед отправкой сообщения.");
+                }
                 scheduleRegularMessage(); // Планирование следующего сообщения
             }, totalDelay);
         }
