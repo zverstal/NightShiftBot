@@ -243,43 +243,24 @@ function startShiftMessageInterval(ctx, testMode = false) {
         return moscowTime.hour >= 21 || moscowTime.hour < 9;
     }
 
-    if (testMode) {
-        // Тестовый режим: отправка сообщения каждые 30 секунд
-        function scheduleTestMessage() {
-            console.log("Отправка тестового сообщения в:", new Date().toISOString()); // Логгирование
-            sendShiftMessages(ctx, testMode);
-            setTimeout(scheduleTestMessage, 30000); // Повтор через 30 секунд
+    // Функция для планирования отправки сообщения
+    function scheduleMessage() {
+        if (testMode || isNightTimeForShiftMessageInMoscow()) {
+            const delay = testMode ? 30000 : Math.random() * 1200000; // 30 секунд для теста или до 20 минут в обычном режиме
+            setTimeout(async () => {
+                await sendShiftMessages(ctx, testMode);
+                scheduleMessage(); // Повторно запланировать следующее сообщение
+            }, delay);
+        } else {
+            console.log("Сейчас не ночное время в Москве. Ожидание следующего периода...");
+            setTimeout(scheduleMessage, 60000); // Проверка каждую минуту, чтобы возобновить отправку, как только наступит ночь
         }
-        scheduleTestMessage();
-    } else {
-        // Обычный режим: отправка сообщения в случайное время в течение 20-минутного интервала
-        function scheduleRegularMessage() {
-            if (!isNightTimeForShiftMessageInMoscow()) {
-                console.log("Сейчас не ночное время в Москве. Ожидание следующего периода...");
-                setTimeout(scheduleRegularMessage, 60000); // Проверка каждую минуту
-                return;
-            }
-
-            const now = new Date();
-            const minutesPastHour = now.getMinutes();
-            const delayToNextIntervalStart = ((Math.floor(minutesPastHour / 20) + 1) * 20 - minutesPastHour) * 60000;
-            const randomDelayInsideInterval = Math.floor(Math.random() * 20) * 60000; // Случайная задержка до 20 минут
-            const totalDelay = delayToNextIntervalStart + randomDelayInsideInterval;
-
-            const scheduledTime = new Date(now.getTime() + totalDelay);
-            console.log("Отправка обычного сообщения запланирована на:", scheduledTime.toISOString()); // Логгирование
-            setTimeout(() => {
-                if (isNightTimeForShiftMessageInMoscow()) { // Дополнительная проверка перед отправкой
-                    sendShiftMessages(ctx, testMode);
-                } else {
-                    console.log("Вышли из ночного времени перед отправкой сообщения.");
-                }
-                scheduleRegularMessage(); // Планирование следующего сообщения
-            }, totalDelay);
-        }
-        scheduleRegularMessage();
     }
+
+    // Начать цикл планирования
+    scheduleMessage();
 }
+
 
 
 bot.command('start', ctx => ctx.reply('С помощью этого бота можно выходить на ночные смены'));
