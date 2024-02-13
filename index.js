@@ -243,28 +243,41 @@ function startShiftMessageInterval(ctx, testMode = false) {
         return moscowTime.hour >= 21 || moscowTime.hour < 9;
     }
 
+    // Время начала первого интервала
+    let nextIntervalStartTime = Date.now();
+
     // Функция для запуска следующего 20-минутного интервала
     function startNextInterval() {
         const intervalDuration = 20 * 60 * 1000; // 20 минут в миллисекундах
-        const delay = testMode ? 30000 : Math.random() * intervalDuration; // 30 секунд для теста или случайно в пределах 20 минут
-        const nextIntervalStart = new Date(Date.now() + intervalDuration);
-        
-        console.log(`Начало следующего 20-минутного интервала в ${nextIntervalStart.toISOString()}`);
-        console.log(`Следующее сообщение запланировано на отправку через ${Math.round(delay / 1000)} секунд внутри этого интервала.`);
+        const now = Date.now();
+
+        // Если текущий момент уже после запланированного времени начала, корректируем его на следующий интервал
+        if (now > nextIntervalStartTime) {
+            nextIntervalStartTime = now + intervalDuration;
+        }
+
+        const delayUntilNextInterval = nextIntervalStartTime - now; // Задержка до начала следующего интервала
+        const messageDelay = testMode ? 30000 : Math.random() * intervalDuration; // Задержка сообщения внутри интервала
+
+        console.log(`Начало следующего 20-минутного интервала в ${new Date(nextIntervalStartTime).toISOString()}`);
+        console.log(`Следующее сообщение запланировано на отправку через ${Math.round(messageDelay / 1000)} секунд внутри этого интервала.`);
 
         setTimeout(() => {
             if (testMode || isNightTimeForShiftMessageInMoscow()) {
                 console.log("Отправка сообщения...");
-                sendShiftMessages(ctx, testMode).then(() => startNextInterval()); // Планируем следующий интервал после отправки
+                sendShiftMessages(ctx, testMode);
             } else {
                 console.log("Сейчас не ночное время в Москве. Ожидание следующего ночного периода...");
-                setTimeout(startNextInterval, 60000); // Проверка каждую минуту
             }
-        }, delay);
+            // Планирование начала следующего интервала после текущего
+            nextIntervalStartTime += intervalDuration;
+            setTimeout(startNextInterval, delayUntilNextInterval + messageDelay);
+        }, messageDelay);
     }
 
     startNextInterval(); // Начинаем первый интервал
 }
+
 
 
 
